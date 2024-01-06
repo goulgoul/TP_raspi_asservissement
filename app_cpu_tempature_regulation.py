@@ -5,7 +5,7 @@ import sqlite3
 import json
 from os import path, mkdir
 
-VERSION = "1.5-06-01-2024"
+VERSION = "1.6-07-01-2024"
 
 MEASUREMENT_PERIOD_SECONDS = 5  # Sample the CPU temperature every X seconds
 FAN_PWM_PIN = 12                # Pin used for PWM (GPIO12 by default)
@@ -15,31 +15,37 @@ DT_PIN = 27                     # Pin used for the DT encoder signal
 CLK_PIN = 17                    # Pin used for the encoder clock signal
 LED_PIN = 8                     # Pin used for the LED indicator (GPIO08 by default) 
 ENCODER_MAX_STEPS = 8
+DEFAULT_TARGET_TEMPERATURE = 40
 KP = 2.0
 AUTOSTART = True
+DB_DIRECTORY = '/cputemp/db'
                            
-class Logger():
+class Logger:
     _instances = {}
     _lock: RLock = RLock()
-    def __new__(cls, name: str = 'root_logger', log_file_path: str = './root_logger.db'):
+    def __new__(cls, db_name: str = 'default.db'):
         with cls._lock:
-            if not name in cls._instances:
-                cls._instances[name] = super().__new__(cls)
-        return cls._instances[name]
+            if not db_name in cls._instances:
+                cls._instances[db_name] = super().__new__(cls)
+        return cls._instances[db_name]
 
-    def __init__(self, name: str = 'root_loger', log_file_path: str = './root_logger.db'):
-        self._name = name
-        log_dir = log_file_path.rsplit('/', 1)[0]
-        if not path.isdir(log_dir):
-            mkdir(log_dir)
-        self._db = sqlite3.connect(log_file_path, check_same_thread=False)
+    def __init__(self, db_name: str = 'default.db'):
+        if not path.isdir(DB_DIRECTORY):
+            mkdir(DB_DIRECTORY)
+        self._db = sqlite3.connect(f'{DB_DIRECTORY}/{db_name}', check_same_thread=False)
         self._cursor = self._db.cursor()
-        self._cursor.execute(f'CREATE TABLE IF NOT EXISTS {self._name} (datetime_text, record)')
+        self._cursor.execute(f'CREATE TABLE IF NOT EXISTS Traces (datetime_text, record)')
+        self._db_name = db_name
 
     def log(self, message: str = 'empty_record') -> None:
-        self._cursor.execute(f"INSERT INTO {self._name} (datetime_text, record) VALUES (DATETIME('now'), '{message}')")
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), '{message}')")
 
         self._db.commit()
+
+    def __del__(self):
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), 'Deleted logger handling {self._db_name}')")
+        self._db.close()
+
 
 class FanControl:
     def __init__(self) -> None:
@@ -54,10 +60,11 @@ class FanControl:
         self._button.when_pressed = self.toggle
         self._enabled = AUTOSTART
         self._led.value = self._enabled
-        self._target_temperature = self.get_temperature()
+        # self._target_temperature = self.get_temperature()
+        self._target_temperature = DEFAULT_TARGET_TEMPERATURE 
         self._encoder_position = self._encoder.steps 
 
-        self._logger = Logger(name='cputemp_logger', log_file_path='/cputemp/db/cputemp.db')
+        self._logger = Logger('cputemp.db')
 
         self.start()
 
@@ -68,10 +75,11 @@ class FanControl:
 
     def stop(self) -> None:
         self._timer.cancel()
+        del self._logger
 
     def on_timeout(self) -> None:
         self.start()
-        fan.regulate_temperature()
+        self.regulate_temperature()
         # print(f'current CPU temparature: {self.get_temperature()} °C')
 
     @staticmethod
@@ -91,16 +99,16 @@ class FanControl:
                 'enabled': json.dumps(self._enabled),
                 'temp': temp,
                 'setpoint': self._target_temperature,
-                'error': temp - self._target_temperature,
+                'error': round(temp - self._target_temperature, 1),
                 'output': self._fan_rate
                 }
-        self._logger.log(json.dumps(json_record))
+        self._logger.log(f'{__class__.__name__}: regulate_temperature() {json.dumps(json_record)}')
         return
 
     def set_target_temperature(self) -> None:
         self._target_temperature += (self._encoder.steps - self._encoder_position)
         self._encoder_position = self._encoder.steps
-        #print(f'target temp {self._target_temperature}')
+        print(f'target temp {self._target_temperature}')
         self.regulate_temperature()
 
     
@@ -113,11 +121,15 @@ class FanControl:
 
 
 if __name__ == '__main__':
+    main_logger = Logger('cputemp.db')
     try:
         fan = FanControl()
-        print(f'active loggers: {Logger._instances}')
         while(True):
             sleep(5)
     except KeyboardInterrupt:
-        print('\nExiting program after KeyboardInterrupt was raised')
+        # print('\nExiting program after KeyboardInterrupt was raised')
         fan.stop()
+        main_logger.log(f'{__name__}: main thread - KeyboardInterrupt was raised')
+    
+    main_logger.log(f'{__name__}: main thread - reached end of program')
+    del main_logger
