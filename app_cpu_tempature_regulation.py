@@ -43,7 +43,7 @@ class Logger:
         self._db.commit()
 
     def __del__(self):
-        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), 'Deleted logger handling {self._db_name}')")
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now', 'localtime'), 'Deleted logger handling {self._db_name}')")
         self._db.close()
 
 
@@ -120,7 +120,7 @@ class FanControl:
 
 
 
-if __name__ == '__main__':
+def main_thread():
     main_logger = Logger('cputemp.db')
     try:
         fan = FanControl()
@@ -133,3 +133,6 @@ if __name__ == '__main__':
     
     main_logger.log(f'{__name__}: main thread - reached end of program')
     del main_logger
+
+if __name__ == '__main__':
+    main_thread()
