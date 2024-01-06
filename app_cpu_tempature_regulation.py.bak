@@ -1,7 +1,6 @@
-from threading import Timer, RLock
+from threading import Timer
 from gpiozero import CPUTemperature, PWMOutputDevice, Button, RotaryEncoder, LED
 from time import sleep
-import sqlite3
 
 VERSION = "1.4-04-01-2024"
 
@@ -15,7 +14,10 @@ LED_PIN = 8                     # Pin used for the LED indicator (GPIO08 by defa
 ENCODER_MAX_STEPS = 8
 KP = 2.0
 AUTOSTART = True
-    
+
+
+
+
 
 
 class FanControl:
