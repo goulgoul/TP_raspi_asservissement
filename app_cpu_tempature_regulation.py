@@ -8,7 +8,8 @@ from os import path, mkdir
 
 VERSION = "1.6-07-01-2024"
 
-MEASUREMENT_PERIOD_SECONDS = 5  # Sample the CPU temperature every X seconds
+MEASUREMENT_PERIOD_SECONDS = 5  # Sample the CPU temperature every 5 seconds
+DB_FLUSH_PERIOD_SECONDS = 3600 # Delete old entries in the database every hour 
 FAN_PWM_PIN = 12                # Pin used for PWM (GPIO12 by default)
 PWM_FREQUENCY = 1               # PWM signal frequency (1 Hz by default)
 BUTTON_PIN = 22                 # GPIO linked to the push button of the encoder (GPIO22 by default
@@ -36,13 +37,23 @@ class Logger:
             mkdir(DB_DIRECTORY)
         self._db = sqlite3.connect(f'{DB_DIRECTORY}/{db_name}', check_same_thread=False)
         self._cursor = self._db.cursor()
-        self._cursor.execute(f'CREATE TABLE IF NOT EXISTS Traces (datetime_text, record)')
+        self._cursor.execute('CREATE TABLE IF NOT EXISTS Traces (datetime_text, record)')
         self._db_name = db_name
+        self._timer = None
 
     def log(self, message: str = 'empty_record') -> None:
-        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now', 'localtime'), '{message}')")
-
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), '{message}')")
         self._db.commit()
+        self.clean_db()
+
+    def clean_db(self) -> None:
+        outdated_entries = self._cursor.execute("SELECT * FROM Traces WHERE datetime_text < DATETIME('now', '-7 second')").fetchall()
+        print(outdated_entries)
+        if outdated_entries == []: 
+            return
+        self._cursor.execute("DELETE FROM Traces WHERE datetime_text < DATETIME('now', '-7 second')")
+        self._db.commit()
+
 
 
 class FanControl:
@@ -120,22 +131,15 @@ class FanControl:
 
 def main_thread():
     main_logger = Logger('cputemp.db')
-    main_mock_logger = Logger('mock.db')
     try:
         fan = FanControl()
         while(True):
             sleep(5)
-            print(dict(Logger._instances))
+            # print(dict(Logger._instances))
     except KeyboardInterrupt:
         # print('\nExiting program after KeyboardInterrupt was raised')
         fan.stop()
-        main_logger.log(f'{__name__}: main thread - KeyboardInterrupt was raised')
     
-    main_logger.log(f'{__name__}: main thread - reached end of program')
-    del main_logger
-    print(dict(Logger._instances))
-    del main_mock_logger
-    print(dict(Logger._instances))
 
 if __name__ == '__main__':
     main_thread()
