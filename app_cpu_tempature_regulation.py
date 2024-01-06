@@ -2,6 +2,7 @@ from threading import Timer, RLock
 from gpiozero import CPUTemperature, PWMOutputDevice, Button, RotaryEncoder, LED
 from time import sleep
 import sqlite3
+from weakref import WeakValueDictionary
 import json
 from os import path, mkdir
 
@@ -21,12 +22,13 @@ AUTOSTART = True
 DB_DIRECTORY = '/cputemp/db'
                            
 class Logger:
-    _instances = {}
+    _instances = WeakValueDictionary()
     _lock: RLock = RLock()
     def __new__(cls, db_name: str = 'default.db'):
         with cls._lock:
-            if not db_name in cls._instances:
-                cls._instances[db_name] = super().__new__(cls)
+            if db_name not in cls._instances:
+                instance = super(Logger, cls).__new__(cls)
+                cls._instances[db_name] = instance
         return cls._instances[db_name]
 
     def __init__(self, db_name: str = 'default.db'):
@@ -38,13 +40,9 @@ class Logger:
         self._db_name = db_name
 
     def log(self, message: str = 'empty_record') -> None:
-        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), '{message}')")
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now', 'localtime'), '{message}')")
 
         self._db.commit()
-
-    def __del__(self):
-        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now', 'localtime'), 'Deleted logger handling {self._db_name}')")
-        self._db.close()
 
 
 class FanControl:
@@ -122,10 +120,12 @@ class FanControl:
 
 def main_thread():
     main_logger = Logger('cputemp.db')
+    main_mock_logger = Logger('mock.db')
     try:
         fan = FanControl()
         while(True):
             sleep(5)
+            print(dict(Logger._instances))
     except KeyboardInterrupt:
         # print('\nExiting program after KeyboardInterrupt was raised')
         fan.stop()
@@ -133,6 +133,9 @@ def main_thread():
     
     main_logger.log(f'{__name__}: main thread - reached end of program')
     del main_logger
+    print(dict(Logger._instances))
+    del main_mock_logger
+    print(dict(Logger._instances))
 
 if __name__ == '__main__':
     main_thread()
