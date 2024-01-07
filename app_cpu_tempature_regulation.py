@@ -1,4 +1,4 @@
-from threading import Timer, RLock
+from threading import Timer, Lock
 from gpiozero import CPUTemperature, PWMOutputDevice, Button, RotaryEncoder, LED
 from time import sleep
 import sqlite3
@@ -6,10 +6,10 @@ from weakref import WeakValueDictionary
 import json
 from os import path, mkdir
 
-VERSION = "1.6-07-01-2024"
+VERSION = "1.7-07-01-2024"
 
 MEASUREMENT_PERIOD_SECONDS = 5  # Sample the CPU temperature every 5 seconds
-DB_FLUSH_PERIOD_SECONDS = 3600 # Delete old entries in the database every hour 
+DB_FLUSH_PERIOD_SECONDS = 30 # Delete old entries in the database every hour 
 FAN_PWM_PIN = 12                # Pin used for PWM (GPIO12 by default)
 PWM_FREQUENCY = 1               # PWM signal frequency (1 Hz by default)
 BUTTON_PIN = 22                 # GPIO linked to the push button of the encoder (GPIO22 by default
@@ -21,10 +21,12 @@ DEFAULT_TARGET_TEMPERATURE = 40
 KP = 2.0
 AUTOSTART = True
 DB_DIRECTORY = '/cputemp/db'
+RECORD_TTL = '-7 second'
                            
 class Logger:
     _instances = WeakValueDictionary()
-    _lock: RLock = RLock()
+    _lock: Lock = Lock()
+
     def __new__(cls, db_name: str = 'default.db'):
         with cls._lock:
             if db_name not in cls._instances:
@@ -40,18 +42,20 @@ class Logger:
         self._cursor.execute('CREATE TABLE IF NOT EXISTS Traces (datetime_text, record)')
         self._db_name = db_name
         self._timer = None
+        self.start_timer()
 
     def log(self, message: str = 'empty_record') -> None:
-        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now'), '{message}')")
+        self._cursor.execute(f"INSERT INTO Traces (datetime_text, record) VALUES (DATETIME('now', 'localtime'), '{message}')")
         self._db.commit()
-        self.clean_db()
+
+    def start_timer(self) -> None:
+        self._timer = Timer(DB_FLUSH_PERIOD_SECONDS, function=self.clean_db)
+        self._timer.start()
 
     def clean_db(self) -> None:
-        outdated_entries = self._cursor.execute("SELECT * FROM Traces WHERE datetime_text < DATETIME('now', '-7 second')").fetchall()
-        print(outdated_entries)
-        if outdated_entries == []: 
-            return
-        self._cursor.execute("DELETE FROM Traces WHERE datetime_text < DATETIME('now', '-7 second')")
+        self.start_timer()
+        # print("cleaning db")
+        self._cursor.execute(f"DELETE FROM Traces WHERE datetime_text < DATETIME('now', 'localtime', '{RECORD_TTL}')")
         self._db.commit()
 
 
