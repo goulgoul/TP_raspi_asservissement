@@ -9,7 +9,7 @@ from os import path, mkdir
 VERSION = "1.7-07-01-2024"
 
 MEASUREMENT_PERIOD_SECONDS = 5  # Sample the CPU temperature every 5 seconds
-DB_FLUSH_PERIOD_SECONDS = 30 # Delete old entries in the database every hour 
+DB_FLUSH_PERIOD_SECONDS = 3600 # Delete old entries in the database every hour 
 FAN_PWM_PIN = 12                # Pin used for PWM (GPIO12 by default)
 PWM_FREQUENCY = 1               # PWM signal frequency (1 Hz by default)
 BUTTON_PIN = 22                 # GPIO linked to the push button of the encoder (GPIO22 by default
